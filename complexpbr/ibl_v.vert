@@ -40,6 +40,18 @@ uniform struct p3d_LightSourceParameters {
     mat4 shadowViewMatrix;
 } p3d_LightSource[MAX_LIGHTS];
 
+// waves stuff
+#define num_waves 16
+
+uniform float amplitude[num_waves];
+uniform float wavelength[num_waves];
+uniform float phase[num_waves];
+uniform vec2 direction[num_waves];
+uniform bool circular[num_waves];
+
+uniform float osg_FrameTime;
+
+
 out vec4 v_shadow_pos[MAX_LIGHTS];
 
 // 0.5.2 main loop
@@ -91,22 +103,62 @@ void main() {
     gl_Position = p3d_ProjectionMatrix * vert_pos4;
 }
 */
+
+float rand(vec2 co){
+    return fract(sin(dot(co, vec2(12.9898, 78.233))) * 43758.5453);
+}
+
 void main() {
+    vec2 pos = p3d_Vertex.xy;
+    float height = 0.;
+
+    float dx = 0.;
+    float dy = 0.;
+
+    for (int i=0; i<num_waves; i++){
+        float amp = amplitude[i];
+        float wave = wavelength[i];
+        float ph = phase[i];
+        vec2 dir = direction[i];
+        bool cir = circular[i];
+
+        if (cir){
+            dir = ((pos - dir)/length(pos - dir));
+        }
+        // calculate the wave height
+        float offset = rand(dir) * 20;
+        float w = amp * sin(dot(dir, pos) * wave +  ph * osg_FrameTime + rand(dir) * 50);
+        height = height + w;
+
+        // calculate the wave normal
+        dx = dx + wave * dir.x * amp * cos(dot(dir, pos) * wave + osg_FrameTime * ph + rand(dir) * 50);
+        dy = dy + wave * dir.y * amp * cos(dot(dir, pos) * wave + osg_FrameTime * ph + rand(dir) * 50);
+
+    }
+    vec3 tangent = vec3(0., 1., dy);
+    vec3 bitangent = vec3(1., 0., dx);
+    vec3 normal = vec3(-dx, -dy, 1.);
+    tangent = p3d_NormalMatrix * tangent;
+    bitangent = p3d_NormalMatrix * bitangent;
+    normal = p3d_NormalMatrix * normal;
+    height = height/num_waves;
+    vec4 position = p3d_Vertex + vec4(0, 0, height, 0);
+
     mat4 skin_matrix = (
         p3d_TransformTable[int(transform_index.x)] * transform_weight.x +
         p3d_TransformTable[int(transform_index.y)] * transform_weight.y +
         p3d_TransformTable[int(transform_index.z)] * transform_weight.z +
         p3d_TransformTable[int(transform_index.w)] * transform_weight.w);
 
-    vec3 normal = normalize(p3d_NormalMatrix * (skin_matrix * vec4(p3d_Normal.xyz, 0.0)).xyz);
-    vec3 tangent = normalize(p3d_NormalMatrix * (skin_matrix * vec4(p3d_Tangent.xyz, 0.0)).xyz);
-    vec3 bitangent = cross(normal, tangent) * p3d_Tangent.w;
+    // vec3 normal = normalize(p3d_NormalMatrix * (skin_matrix * vec4(p3d_Normal.xyz, 0.0)).xyz);
+    // vec3 tangent = normalize(p3d_NormalMatrix * (skin_matrix * vec4(p3d_Tangent.xyz, 0.0)).xyz);
+    // vec3 bitangent = cross(normal, tangent) * p3d_Tangent.w;
     v_tbn = mat3(tangent, bitangent, normal);
 
     v_color = p3d_Color;
     v_texcoord = (p3d_TextureMatrix * vec4(p3d_MultiTexCoord0, 0.0, 1.0)).xy;
     float displacement = texture(displacement_map, v_texcoord).r * displacement_scale;
-    vec4 displaced_vertex = skin_matrix * p3d_Vertex + vec4(normal, 0.0) * displacement;
+    vec4 displaced_vertex = skin_matrix * position + vec4(normal, 0.0) * displacement;
     vec4 model_view_displaced_vertex = p3d_ModelViewMatrix * displaced_vertex;
     v_position = vec3(model_view_displaced_vertex);
 
