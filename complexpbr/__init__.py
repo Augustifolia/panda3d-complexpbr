@@ -46,6 +46,7 @@ def set_cubebuff_active():
     return threading2._start_new_thread(set_thread,())
 
 def rotate_cubemap(task):
+    # return
     c_map = base.render.find('cuberig')
     c_map.set_h(base.render,base.cam.get_h(base.render))
     c_map.set_p(base.render,base.cam.get_p(base.render) + 90)
@@ -124,7 +125,7 @@ def complexpbr_rig_init(node, intensity, lut_fill):
     load_prc_file_data('', 'gl-cube-map-seamless 1')
     load_prc_file_data('', 'framebuffer-multisample 1')
     load_prc_file_data('', 'multisamples 4')
-    
+
     brdf_lut_tex = Texture("complexpbr_lut")
     brdf_lut_image = PNMImage()
     brdf_lut_image.clear(x_size=base.win.get_x_size(), y_size=base.win.get_y_size(), num_channels=4)
@@ -143,7 +144,7 @@ def complexpbr_rig_init(node, intensity, lut_fill):
     displacement_map = Texture()
     specular_factor = 1.0
 
-    node.set_shader(base.complexpbr_shader)
+    # node.set_shader(base.complexpbr_shader)
 
     node.set_tex_gen(TextureStage.get_default(), TexGenAttrib.MWorldCubeMap)
     node.set_shader_input("cubemaptex", base.cube_buffer.get_texture())
@@ -167,11 +168,11 @@ def apply_shader(node=None, intensity=1.0, env_cam_pos=None, env_res=256, lut_fi
     if cpbr_shader_init:
         cpbr_shader_init = False
         base.env_cam_pos = env_cam_pos
-        
+
         vert = "ibl_v.vert"
         frag = "ibl_f.frag"
 
-        base.complexpbr_shader = Shader.load(Shader.SL_GLSL, vert, frag)
+        # base.complexpbr_shader = Shader.load(Shader.SL_GLSL, vert, frag)
 
         cube_rig = NodePath('cuberig')
         base.cube_buffer = base.win.make_cube_map('cubemap', env_res, cube_rig)

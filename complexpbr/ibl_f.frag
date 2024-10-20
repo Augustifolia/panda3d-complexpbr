@@ -1,4 +1,5 @@
-#version 430
+//#version 430
+#pragma once
 
 #ifndef MAX_LIGHTS
     #define MAX_LIGHTS 20
@@ -160,7 +161,7 @@ float normal_blur(in float x, in float sig)
     return 0.3989*exp(-0.5*x*x/(sig*sig))/sig;
 }
 
-void main()
+vec4 c_frag()
 {
     vec3 N = normalize(v_tbn * (2.0 * texture(p3d_Texture2, v_texcoord).rgb - 1.0));
     // vec3 N = normalize((2.0 * texture(p3d_Texture2, v_texcoord).rgb - 1.0));
@@ -237,4 +238,5 @@ void main()
     outputNormal = texture(p3d_Texture2, v_texcoord).rgb * 0.5 + vec3(0.5);
     // outputNormal = N * 0.5 + vec3(0.5);
     // outputNormal = N;
+    return o_color;
 }

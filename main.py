@@ -1,8 +1,92 @@
 import random
 
 import panda3d.core as p3d
+from panda3d.core import *
+load_prc_file_data(
+    "",
+    """
+    want-pstats #t
+    """
+)
 from direct.showbase.ShowBase import ShowBase
 import complexpbr
+from typing import TYPE_CHECKING
+if TYPE_CHECKING:
+    base: ShowBase
+    render: ShowBase.render
+
+
+def setup_transparency():
+    # The shader on the scene just writes everything to the linked list buffer.
+    # Better would be to use separate passes for opaque and transparent stuff.
+    base.complexpbr_shader = Shader.load(Shader.SL_GLSL, "complexpbr/scene.vert", "complexpbr/scene-transparent.frag")
+    render.set_shader(base.complexpbr_shader)
+    render.set_attrib(DepthWriteAttrib.make(DepthWriteAttrib.M_off))
+    render.set_attrib(ColorWriteAttrib.make(ColorWriteAttrib.C_off))
+    render.set_depth_test(False)
+
+    _update_window_size()
+
+    # Create a fullscreen triangle for rendering the PLLs.
+    vdata = GeomVertexData('oit-resolve', GeomVertexFormat.get_empty(), Geom.UH_static)
+    prim = GeomTriangles(Geom.UH_static)
+    prim.add_next_vertices(3)
+    geom = Geom(vdata)
+    geom.add_primitive(prim)
+    gnode = GeomNode('oit-resolve-geom')
+    gnode.add_geom(geom, RenderState.make(
+        DepthTestAttrib.make(DepthTestAttrib.M_none),
+        DepthWriteAttrib.make(DepthWriteAttrib.M_off),
+        ColorWriteAttrib.make(ColorWriteAttrib.C_all),
+        ColorBlendAttrib.make(ColorBlendAttrib.M_add, ColorBlendAttrib.O_one, ColorBlendAttrib.O_incoming_alpha),
+        ShaderAttrib.make(Shader.load(Shader.SL_GLSL, "complexpbr/resolve.vert", "complexpbr/resolve.frag")),
+    ).set_attrib(CullBinAttrib.make('unsorted', 100000)))
+    gnode.set_bounds(OmniBoundingVolume())
+    gnode.set_final(True)
+
+    # This cull callback is just to clear the texture every frame.
+    # Could be done in a task too
+    def _resolve_cull_callback(cbdata):
+        scene = cbdata.get_data().node_path.get_top()
+        tex = scene.get_shader_input('oit_FragmentHeads').get_texture()
+        tex.clear_image()
+        cbdata.upcall()
+
+    cnode = CallbackNode('oit-resolve-callback')
+    cnode.set_cull_callback(_resolve_cull_callback)
+    cnode.add_child(gnode)
+    render.attach_new_node(cnode)
+
+
+def update_window_size(win):
+    if win != base.win:
+        # This event isn't about our window.
+        return
+    base.windowEvent(win)
+    _update_window_size()
+
+
+def _update_window_size():
+    # Should match sizeof(oit_FragmentListNode) in common.glsl
+    OIT_FRAGMENT_NODE_SIZE = 24  # vec4, float, uint, times four bytes
+
+    # Allocate size for 4x as many fragments as we have framebuffer pixels
+    OIT_SIZE_MULTIPLIER = 4
+    # Make the framebuffer-sized texture storing the heads of the linked list.
+    size = base.win.size
+    tex = Texture('oit-fragment-heads')
+    tex.setup_2d_texture(size.x, size.y, Texture.T_unsigned_int, Texture.F_r32i)
+    tex.set_clear_color((0, 0, 0, 0))
+
+    # Make the buffer storing the linked list.  size_multiplier determines the size
+    # of the offscreen buffer.
+    num_fragments = min(int(size.x * size.y * OIT_SIZE_MULTIPLIER), 2 ** 32 - 2)
+    ssbo = ShaderBuffer('oit-fragment-buffer', num_fragments * OIT_FRAGMENT_NODE_SIZE + 4, Geom.UH_stream)
+
+    render.set_shader_inputs(
+        oit_FragmentBuffer=ssbo,
+        oit_FragmentHeads=tex,
+    )
 
 
 class Game(ShowBase):
@@ -21,20 +105,34 @@ class Game(ShowBase):
 
         self.water_model = self.loader.loadModel("water_plane.blend")
         self.water_model.reparentTo(self.render)
+        self.water_model.setTransparency(1)
+        self.water_model.setColorScale(1, 1, 1, .3)
 
         # Load the skybox
-        self.skybox = self.loader.loadModel("skybox.blend")
-        self.skybox.setScale(200)
-        self.skybox.reparentTo(self.render)
-        self.skybox.setShaderOff()
-        self.skybox.setBin('background', 0)
-        self.skybox.setDepthWrite(0)
-        self.skybox.setLightOff()
-
-        complexpbr.apply_shader(self.render, env_cam_pos=p3d.Vec3(0))
-        complexpbr.screenspace_init()
+        try:
+            self.skybox = self.loader.loadModel("skybox.blend")
+            self.skybox.setTexture(self.loader.loadTexture("complexpbr/sky_tex.jpg"), 1)
+        except OSError as e:
+            print(e)
+        else:
+            self.skybox.setScale(2000)
+            self.skybox.reparentTo(self.cam)
+            # self.skybox.setShaderOff()
+            # self.skybox.set_shader(Shader.load(Shader.SL_GLSL, vertex="complexpbr/scene.vert", fragment="complexpbr/scene-opaque.frag"), 10)
+            # self.skybox.setBin('background', 0)
+            # self.skybox.setDepthWrite(0)
+            # self.skybox.setLightOff()
 
         self.generate_wave_data(.04)
+        self.water_model.set_shader(Shader.load(Shader.SL_GLSL, vertex="complexpbr/scene_water.vert", fragment="complexpbr/scene-transparent.frag"))
+
+        setup_transparency()
+        complexpbr.apply_shader(self.render)
+        # complexpbr.screenspace_init()
+        # base.screen_quad.set_shader_input("bloom_intensity", .2)
+
+        base.accept("escape", base.userExit)
+        base.accept("window-event", update_window_size)
 
     def generate_wave_data(self, amplitude_scale=0.2):
         def rand_float():
